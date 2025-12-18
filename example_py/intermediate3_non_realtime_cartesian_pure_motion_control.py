@@ -31,6 +31,9 @@ EXT_FORCE_THRESHOLD = 10.0
 # External joint torque threshold for collision detection, value is only for demo purpose [Nm]
 EXT_TORQUE_THRESHOLD = 5.0
 
+# Home position for safe return [deg]
+HOME_POSITION_DEG = [0.0, -40.0, 0.0, 90.0, 0.0, 40.0, 0.0]
+
 
 def main():
     # Program Setup
@@ -40,6 +43,8 @@ def main():
     # Required arguments
     argparser.add_argument(
         "robot_sn",
+        nargs="?",
+        default="Rizon4-063423",
         help="Serial number of the robot to connect. Remove any space, e.g. Rizon4s-123456",
     )
     argparser.add_argument(
@@ -84,11 +89,14 @@ def main():
     else:
         logger.info("Collision detection disabled")
 
+    robot = None
+
     try:
         # RDK Initialization
         # ==========================================================================================
         # Instantiate robot interface
         robot = flexivrdk.Robot(args.robot_sn)
+        home_jpos = flexivrdk.JPos(HOME_POSITION_DEG)
 
         # Clear fault on the connected robot if any
         if robot.fault():
@@ -111,11 +119,17 @@ def main():
 
         # Move robot to home pose
         logger.info("Moving to home pose")
-        robot.SwitchMode(mode.NRT_PLAN_EXECUTION)
-        robot.ExecutePlan("PLAN-Home")
-        # Wait for the plan to finish
-        while robot.busy():
-            time.sleep(1)
+        robot.SwitchMode(mode.NRT_PRIMITIVE_EXECUTION)
+        robot.ExecutePrimitive(
+            "MoveJ",
+            {
+                "target": home_jpos,
+                "jntVelScale": 50,
+            },
+        )
+        # Wait for MoveJ to finish
+        while not robot.primitive_states()["reachedTarget"]:
+            time.sleep(0.1)
 
         # Zero Force-torque Sensor
         # =========================================================================================
@@ -252,6 +266,31 @@ def main():
 
             # Increment loop counter
             loop_counter += 1
+
+    except KeyboardInterrupt:
+        logger.info("Ctrl+C detected, safely moving robot to home position...")
+        if robot is not None and robot.operational():
+            try:
+                # Switch to primitive execution mode and use MoveJ to go home
+                robot.SwitchMode(mode.NRT_PRIMITIVE_EXECUTION)
+                robot.ExecutePrimitive(
+                    "MoveJ",
+                    {
+                        "target": home_jpos,
+                        "jntVelScale": 50,  # Joint velocity scale [1-100]
+                        # "jntAccScale": 1.5,  # Joint acceleration scale [1-4]
+                    },
+                )
+                # Wait for MoveJ to finish
+                while not robot.primitive_states()["reachedTarget"]:
+                    time.sleep(0.1)
+                logger.info("Robot safely returned to home position")
+            except KeyboardInterrupt:
+                logger.warn("Force quit requested. Robot may not be at home position!")
+                robot.Stop()
+            except Exception as home_err:
+                logger.error(f"Failed to return home: {home_err}")
+        logger.info("Exiting program")
 
     except Exception as e:
         # Print exception error message

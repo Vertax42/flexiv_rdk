@@ -124,6 +124,9 @@ def main():
         # Joint sine-sweep frequency [Hz]
         SWING_FREQ = 0.3
 
+        # Free-floating mode flag
+        free_floating = False
+
         # Send command periodically at user-specified frequency
         while True:
             # Use sleep to control loop period
@@ -147,13 +150,32 @@ def main():
                 robot.SetJointImpedance(new_Kq)
                 logger.info(f"Joint stiffness set to {new_Kq}")
 
-            # Reset impedance properties to nominal values after another 5 seconds
+            # Enter free-floating mode after 10 seconds using FloatingJoint primitive
             if loop_counter == 10 / period:
-                robot.SetJointImpedance(robot.info().K_q_nom)
-                logger.info("Joint impedance properties are reset")
+                # Stop robot motion first before entering free-floating mode
+                robot.Stop()
+                logger.info("Robot stopped, entering FloatingJoint mode...")
+                time.sleep(0.5)  # Wait for robot to stabilize
+                
+                # Switch to primitive execution mode and use FloatingJoint
+                robot.SwitchMode(mode.NRT_PRIMITIVE_EXECUTION)
+                robot.ExecutePrimitive(
+                    "FloatingJoint",
+                    {
+                        # All joints can float (1=float, 0=fixed)
+                        "floatingJoint": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+                        # Damping level (0=easiest to move, 100=hardest)
+                        "dampingLevel": [0, 0, 0, 0, 0, 0, 0],
+                        # Response torque threshold [Nm] (lower = more sensitive)
+                        "responseTorque": [1.5, 1.5, 1.5, 1.5, 0.5, 0.5, 0.3],
+                    },
+                )
+                logger.info("FloatingJoint primitive started - you can now drag the robot!")
+                free_floating = True
 
-            # Send commands
-            robot.SendJointPosition(target_pos, target_vel, MAX_VEL, MAX_ACC)
+            # Send commands only when not in free-floating mode
+            if not free_floating:
+                robot.SendJointPosition(target_pos, target_vel, MAX_VEL, MAX_ACC)
 
             # Increment loop counter
             loop_counter += 1
@@ -168,7 +190,7 @@ def main():
                     "MoveJ",
                     {
                         "target": home_jpos,
-                        "vel": 0.2,  # Slower velocity for safety [m/s]
+                        "jntVelScale": 20,  # Joint velocity scale [1-100]
                     },
                 )
                 # Wait for MoveJ to finish

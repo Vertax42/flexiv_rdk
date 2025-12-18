@@ -130,7 +130,7 @@ def main():
             "MoveJ",
             {
                 "target": start_jpos,
-                "vel": 0.3,  # TCP linear velocity [m/s]
+                "jntVelScale": 30,  # Joint velocity scale [1-100]
             },
         )
         # Wait for reached target
@@ -210,7 +210,7 @@ def main():
                     "MoveJ",
                     {
                         "target": home_jpos,
-                        "vel": 0.2,  # Slower velocity for safety [m/s]
+                        "jntVelScale": 20,  # Joint velocity scale [1-100]
                     },
                 )
                 # Wait for MoveJ to finish

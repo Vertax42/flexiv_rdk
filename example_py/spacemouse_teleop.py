@@ -37,7 +37,7 @@ from queue import Queue
 DEFAULT_FREQUENCY = 100
 
 # Spacemouse sensitivity
-POS_SPEED = 0.15        # Position speed scale [m/s at max input]
+POS_SPEED = 0.3        # Position speed scale [m/s at max input]
 ORI_SPEED = 0.8         # Orientation speed scale [rad/s at max input]
 GRIPPER_SPEED = 0.02    # Gripper speed [m/s]
 
@@ -234,7 +234,7 @@ class SpacemouseTeleop:
         start_jpos = flexivrdk.JPos(START_POSITION_DEG)
         self.robot.ExecutePrimitive("MoveJ", {
             "target": start_jpos,
-            "vel": 0.3,  # TCP linear velocity [m/s]
+            "jntVelScale": 30,  # Joint velocity scale [1-100]
         })
         
         while not self.robot.primitive_states()["reachedTarget"]:
@@ -412,7 +412,7 @@ def main():
         start_jpos = flexivrdk.JPos(START_POSITION_DEG)
         robot.ExecutePrimitive("MoveJ", {
             "target": start_jpos,
-            "vel": 0.3,  # TCP linear velocity [m/s]
+            "jntVelScale": 30,  # Joint velocity scale [1-100]
         })
         while not robot.primitive_states()["reachedTarget"]:
             time.sleep(0.5)
@@ -449,7 +449,7 @@ def main():
                     "MoveJ",
                     {
                         "target": home_jpos,
-                        "vel": 0.2,  # Slower velocity for safety [m/s]
+                        "jntVelScale": 20,  # Joint velocity scale [1-100]
                     },
                 )
                 # Wait for MoveJ to finish (with Ctrl+C protection)
