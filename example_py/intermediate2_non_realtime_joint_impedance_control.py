@@ -24,6 +24,8 @@ def main():
     # Required arguments
     argparser.add_argument(
         "robot_sn",
+        nargs="?",
+        default="Rizon4-063423",
         help="Serial number of the robot to connect. Remove any space, e.g. Rizon4s-123456",
     )
     argparser.add_argument(
@@ -51,11 +53,16 @@ def main():
         "hold or sine-sweep all robot joints.\n"
     )
 
+    # Home position for safe return
+    HOME_POSITION_DEG = [0.0, -40.0, 0.0, 90.0, 0.0, 40.0, 0.0]
+    robot = None
+
     try:
         # RDK Initialization
         # ==========================================================================================
         # Instantiate robot interface
         robot = flexivrdk.Robot(args.robot_sn)
+        home_jpos = flexivrdk.JPos(HOME_POSITION_DEG)
 
         # Clear fault on the connected robot if any
         if robot.fault():
@@ -114,7 +121,7 @@ def main():
         # Joint sine-sweep amplitude [rad]
         SWING_AMP = 0.1
 
-        # TCP sine-sweep frequency [Hz]
+        # Joint sine-sweep frequency [Hz]
         SWING_FREQ = 0.3
 
         # Send command periodically at user-specified frequency
@@ -150,6 +157,30 @@ def main():
 
             # Increment loop counter
             loop_counter += 1
+
+    except KeyboardInterrupt:
+        logger.info("Ctrl+C detected, safely moving robot to home position...")
+        if robot is not None and robot.operational():
+            try:
+                # Switch to primitive execution mode and use MoveJ to go home
+                robot.SwitchMode(mode.NRT_PRIMITIVE_EXECUTION)
+                robot.ExecutePrimitive(
+                    "MoveJ",
+                    {
+                        "target": home_jpos,
+                        "vel": 0.2,  # Slower velocity for safety [m/s]
+                    },
+                )
+                # Wait for MoveJ to finish
+                while not robot.primitive_states()["reachedTarget"]:
+                    time.sleep(0.1)
+                logger.info("Robot safely returned to home position")
+            except KeyboardInterrupt:
+                logger.warn("Force quit requested. Robot may not be at home position!")
+                robot.Stop()
+            except Exception as home_err:
+                logger.error(f"Failed to return home: {home_err}")
+        logger.info("Exiting program")
 
     except Exception as e:
         # Print exception error message

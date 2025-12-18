@@ -14,6 +14,36 @@ import argparse
 import spdlog  # pip install spdlog
 import flexivrdk  # pip install flexivrdk
 
+def quat_to_euler(qw, qx, qy, qz):
+    """Convert quaternion to Euler angles [roll, pitch, yaw] in radians."""
+    roll = math.atan2(2 * (qw * qx + qy * qz), 1 - 2 * (qx * qx + qy * qy))
+    sinp = 2 * (qw * qy - qz * qx)
+    pitch = math.copysign(math.pi / 2, sinp) if abs(sinp) >= 1 else math.asin(sinp)
+    yaw = math.atan2(2 * (qw * qz + qx * qy), 1 - 2 * (qy * qy + qz * qz))
+    return [roll, pitch, yaw]
+
+
+def print_observation(robot, logger):
+    """Print robot observation, similar to basics1_display_robot_states.py"""
+    states = robot.states()
+    fmt = lambda arr: [f"{x:.4f}" for x in arr]
+    
+    logger.info("Current robot observation:")
+    # fmt: off
+    print("{")
+    print(f"  q [rad]:     {fmt(states.q)}")
+    print(f"  dq [rad/s]:  {fmt(states.dq)}")
+    print(f"  tau [Nm]:    {fmt(states.tau)}")
+    print(f"  tau_ext [Nm]: {fmt(states.tau_ext)}")
+    # TCP pose 6D
+    pos = states.tcp_pose[0:3]
+    euler = quat_to_euler(*states.tcp_pose[3:7])
+    print(f"  tcp_pos [m]: {fmt(pos)}")
+    print(f"  tcp_euler [rad]: {fmt(euler)}")
+    print(f"  ft_sensor [N,Nm]: {fmt(states.ft_sensor_raw)}")
+    print("}", flush=True)
+    # fmt: on
+
 
 def main():
     # Program Setup
@@ -23,6 +53,8 @@ def main():
     # Required arguments
     argparser.add_argument(
         "robot_sn",
+        nargs="?",
+        default="Rizon4-063423",
         help="Serial number of the robot to connect. Remove any space, e.g. Rizon4s-123456",
     )
     argparser.add_argument(
@@ -50,6 +82,9 @@ def main():
         "hold or sine-sweep all robot joints.\n"
     )
 
+    # Initialize robot variable for access in exception handlers
+    robot = None
+    START_POSITION_DEG = [0.0, -40.0, 0.0, 90.0, 0.0, 40.0, 0.0]
     try:
         # RDK Initialization
         # ==========================================================================================
@@ -75,19 +110,40 @@ def main():
 
         logger.info("Robot is now operational")
 
-        # Move robot to home pose
-        logger.info("Moving to home pose")
-        robot.SwitchMode(mode.NRT_PLAN_EXECUTION)
-        robot.ExecutePlan("PLAN-Home")
-        # Wait for the plan to finish
-        while robot.busy():
-            time.sleep(1)
+        # # Move robot to home pose
+        # logger.info("Moving to home pose")
+        # robot.SwitchMode(mode.NRT_PLAN_EXECUTION)
+        # robot.ExecutePlan("PLAN-Home")
+        # # Wait for the plan to finish
+        # while robot.busy():
+        #     time.sleep(1)
 
+        # Move robot to start pose using primitive execution
+        logger.info("Moving to start pose")
+        robot.SwitchMode(mode.NRT_PRIMITIVE_EXECUTION)
+        time.sleep(0.1)
+
+        logger.info(f"Executing primitive MoveJ to move to start pose {START_POSITION_DEG}")
+        start_jpos = flexivrdk.JPos(START_POSITION_DEG)
+
+        robot.ExecutePrimitive(
+            "MoveJ",
+            {
+                "target": start_jpos,
+                "vel": 0.3,  # TCP linear velocity [m/s]
+            },
+        )
+        # Wait for reached target
+        # Note: primitive_states() returns a dictionary of {pt_state_name, [pt_state_values]}
+        while not robot.primitive_states()["reachedTarget"]:
+            logger.info("Waiting for start pose to be reached...")
+            time.sleep(0.1)
+        logger.info("Start pose reached!")
         # Non-real-time Joint Position Control
         # ==========================================================================================
         # Switch to non-real-time joint position control mode
         robot.SwitchMode(mode.NRT_JOINT_POSITION)
-
+        time.sleep(0.1)
         period = 1.0 / frequency
         loop_time = 0
         logger.info(
@@ -108,12 +164,12 @@ def main():
 
         # Joint motion constraints
         MAX_VEL = [2.0] * DoF
-        MAX_ACC = [3.0] * DoF
+        MAX_ACC = [1.0] * DoF
 
         # Joint sine-sweep amplitude [rad]
-        SWING_AMP = 0.1
+        SWING_AMP = 0.15
 
-        # TCP sine-sweep frequency [Hz]
+        # Joint sine-sweep frequency [Hz]
         SWING_FREQ = 0.3
 
         # Send command periodically at user-specified frequency
@@ -136,12 +192,45 @@ def main():
             # Send command
             robot.SendJointPosition(target_pos, target_vel, MAX_VEL, MAX_ACC)
 
+            # Print observation
+            print_observation(robot, logger)
+
             # Increment loop time
             loop_time += period
+
+    except KeyboardInterrupt:
+        # Handle Ctrl+C: safely move robot back to home
+        logger.info("Ctrl+C detected, safely moving robot to home position...")
+        if robot is not None and robot.operational():
+            try:
+                # Switch to primitive execution mode and use MoveJ to go home
+                robot.SwitchMode(mode.NRT_PRIMITIVE_EXECUTION)
+                home_jpos = flexivrdk.JPos(START_POSITION_DEG)
+                robot.ExecutePrimitive(
+                    "MoveJ",
+                    {
+                        "target": home_jpos,
+                        "vel": 0.2,  # Slower velocity for safety [m/s]
+                    },
+                )
+                # Wait for MoveJ to finish
+                while not robot.primitive_states()["reachedTarget"]:
+                    time.sleep(0.1)
+                logger.info("Robot safely returned to home position")
+            except Exception as home_err:
+                logger.error(f"Failed to return home: {home_err}")
+        logger.info("Exiting program")
 
     except Exception as e:
         # Print exception error message
         logger.error(str(e))
+
+    finally:
+        # Cleanup: always executed regardless of how the program exits
+        if robot is not None:
+            logger.info("Program finished, disconnecting from robot...")
+            # Robot object will be garbage collected and connection closed automatically
+        logger.info("Program terminated")
 
 
 if __name__ == "__main__":

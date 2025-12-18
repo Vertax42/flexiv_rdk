@@ -151,7 +151,9 @@ def main():
         robot.SetForceControlAxis([False, False, False, False, False, False])
 
         # Set initial pose to current TCP pose
-        init_pose = robot.states().tcp_pose.copy()
+        init_pose = (
+            robot.states().tcp_pose.copy()
+        )  # [x, y, z, qw, qx, qy, qz] in meters and quaternion
 
         # Save initial joint positions
         init_q = robot.states().q.copy()
