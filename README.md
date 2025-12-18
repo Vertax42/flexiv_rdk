@@ -32,6 +32,14 @@ On all supported platforms, the Python package of RDK and its dependencies for a
 
 NOTE: replace `3.x` with a specific Python version.
 
+**Note: you need to install libspnav-dev and spacenavd for 3D spacemouse Cartesian control.**
+
+    ```bash
+    sudo apt install libspnav-dev spacenavd
+    sudo systemctl enable spacenavd.service
+    sudo systemctl start spacenavd.service
+    ```
+
 ### Use the installed Python package
 
 After the ``flexivrdk`` Python package is installed, it can be imported from any Python script. Test with the following commands in a new Terminal, which should start Flexiv RDK:
@@ -170,7 +178,7 @@ NOTE: ``sudo`` is only required if the real-time scheduler API ``flexiv::rdk::Sc
 
 ## API Documentation
 
-The complete and detailed API documentation of the **latest release** can be found at https://www.flexiv.com/software/rdk/api. The API documentation of a previous release can be generated manually using Doxygen. For example, on Linux:
+The complete and detailed API documentation of the **latest release** can be found at <https://www.flexiv.com/software/rdk/api>. The API documentation of a previous release can be generated manually using Doxygen. For example, on Linux:
 
     sudo apt install doxygen-latex graphviz
     cd flexiv_rdk
